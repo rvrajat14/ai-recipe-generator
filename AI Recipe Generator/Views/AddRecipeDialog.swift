@@ -6,7 +6,7 @@
 //
 import SwiftUI
 
-import SwiftUI
+import Speech
 
 struct AddRecipeDialog: View {
     
@@ -16,6 +16,8 @@ struct AddRecipeDialog: View {
     
     @State private var ingredients: String = ""
     @State private var cuisine: Cuisine = .italian
+    
+    @State private var speechService = SpeechRecognitionService()
     
     var body: some View {
         
@@ -38,11 +40,56 @@ struct AddRecipeDialog: View {
                     
                     // MARK: - Ingredients Input
                     
+                    
                     VStack(alignment: .leading, spacing: 8) {
                         
-                        Text("Ingredients")
-                            .font(.headline)
+                        // Header row with mic button
+                        HStack {
+                            Text("Ingredients")
+                                .font(.headline)
+                            
+                            Spacer()
+                            
+                            // Voice button
+                            Button {
+                                handleVoiceButton()
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: speechService.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(speechService.isRecording ? .red : .indigo)
+                                        .symbolEffect(.pulse, isActive: speechService.isRecording)
+                                    
+                                    Text(speechService.isRecording ? "Stop" : "Voice")
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .foregroundStyle(speechService.isRecording ? .red : .indigo)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    (speechService.isRecording ? Color.red : Color.indigo).opacity(0.1)
+                                )
+                                .clipShape(Capsule())
+                            }
+                            .disabled(speechService.authorizationStatus == .denied)
+                        }
                         
+                        // Live transcription indicator
+                        if speechService.isRecording {
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 8, height: 8)
+                                    .symbolEffect(.pulse)
+                                Text("Listening… speak your ingredients")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                            }
+                            .transition(.opacity)
+                        }
+                        
+                        // Text editor
                         ZStack(alignment: .topLeading) {
                             
                             if ingredients.isEmpty {
@@ -58,12 +105,44 @@ struct AddRecipeDialog: View {
                         }
                         .overlay(
                             RoundedRectangle(cornerRadius: 10)
-                                .stroke(.gray.opacity(0.3))
+                                .stroke(
+                                    speechService.isRecording ? Color.red.opacity(0.5) : Color.gray.opacity(0.3),
+                                    lineWidth: speechService.isRecording ? 2 : 1
+                                )
+                                .animation(.easeInOut, value: speechService.isRecording)
                         )
                         
-                        Text("Separate ingredients with commas.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                        // Error message
+                        if let error = speechService.errorMessage {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        
+                        // Hint
+                        HStack {
+                            Text("Separate ingredients with commas.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if !speechService.transcribedText.isEmpty && !speechService.isRecording {
+                                Button("Clear") {
+                                    ingredients = ""
+                                    speechService.transcribedText = ""
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .onAppear {
+                        speechService.requestAuthorization()
+                    }
+                    .onChange(of: speechService.transcribedText) { _, newValue in
+                        // Append transcribed text to existing ingredients
+                        if !newValue.isEmpty {
+                            ingredients = newValue
+                        }
                     }
                     
                     // MARK: - Cuisine Picker
@@ -126,4 +205,23 @@ struct AddRecipeDialog: View {
             .navigationBarTitleDisplayMode(.inline)
         }
     }
+    
+    private func handleVoiceButton() {
+        if speechService.isRecording {
+            speechService.stopRecording()
+        } else {
+            switch speechService.authorizationStatus {
+            case .authorized:
+                speechService.startRecording()
+            case .notDetermined:
+                speechService.requestAuthorization()
+            case .denied, .restricted:
+                speechService.errorMessage = "Microphone access denied. Enable it in Settings."
+            @unknown default:
+                break
+            }
+        }
+    }
+    
 }
+
